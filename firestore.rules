@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Troque pelos e-mails dos líderes (os mesmos de firebase-config.js).
+    function isLeader() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['seu-email@gmail.com'];
+    }
+
+    function validName() {
+      return request.resource.data.name is string
+        && request.resource.data.name.size() > 1
+        && request.resource.data.name.size() <= 60;
+    }
+
+    // Cultos: todos leem, só líder escreve.
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if isLeader();
+
+      // Inscrições (nome + função): públicas para leitura.
+      match /assignments/{id} {
+        allow read: if true;
+        allow create: if isLeader() || (
+          request.auth != null
+          && request.resource.data.keys().hasOnly(['roleId', 'name', 'uid', 'status', 'createdAt'])
+          && request.resource.data.status == 'pending'
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.roleId is string
+          && validName());
+        allow update: if isLeader();
+        allow delete: if isLeader()
+          || (request.auth != null && resource.data.uid == request.auth.uid);
+      }
+
+      // Telefones: só o líder lê.
+      match /contacts/{id} {
+        allow read: if isLeader();
+        allow create: if isLeader() || (
+          request.auth != null
+          && request.resource.data.keys().hasOnly(['phone', 'uid'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.phone is string
+          && request.resource.data.phone.size() <= 25);
+        allow update: if isLeader();
+        allow delete: if isLeader()
+          || (request.auth != null && resource.data.uid == request.auth.uid);
+      }
+    }
+
+    // Leituras em todos os cultos de uma vez (collection group).
+    match /{path=**}/assignments/{id} {
+      allow read: if true;
+    }
+    match /{path=**}/contacts/{id} {
+      allow read: if isLeader();
+    }
+  }
+}
